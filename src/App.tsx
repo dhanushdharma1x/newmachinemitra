@@ -20,7 +20,7 @@ import {
   TrendingUp,
   LineChart
 } from 'lucide-react';
-import { Machine, Job, PaymentHistoryItem, DieselLog, Expense, SalaryLog, MachineStatus } from './types';
+import { Machine, Job, PaymentHistoryItem, DieselLog, Expense, SalaryLog, MachineStatus, UserProfile, UserSession } from './types';
 import { getTodayString } from './utils/helpers';
 
 // Subcomponents
@@ -30,11 +30,23 @@ import JobManager from './components/JobManager';
 import DieselAndExpenseManager from './components/DieselAndExpenseManager';
 import SalaryManager from './components/SalaryManager';
 import ProfitLoss from './components/ProfitLoss';
+import Login from './components/Login';
+import ProfileSettings from './components/ProfileSettings';
 
 export default function App() {
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'machines' | 'jobs' | 'diesel' | 'salaries' | 'profit-loss'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'machines' | 'jobs' | 'diesel' | 'salaries' | 'profit-loss' | 'profile'>('dashboard');
+
+  // User Verification Session
+  const [session, setSession] = useState<UserSession>({
+    isLoggedIn: false,
+    profile: {
+      name: 'Owner',
+      phoneNumber: '',
+      companyName: 'Sri Ram Earth Movers'
+    }
+  });
 
   // Quick Action state togglers
   const [openMachineModal, setOpenMachineModal] = useState(false);
@@ -68,6 +80,16 @@ export default function App() {
       if (storedDiesel) setDieselLogs(JSON.parse(storedDiesel));
       if (storedExpenses) setExpenses(JSON.parse(storedExpenses));
       if (storedSalaries) setSalaries(JSON.parse(storedSalaries));
+
+      // Load Login Session Info
+      const logged = localStorage.getItem('mm_logged_in') === 'true';
+      const storedProfile = localStorage.getItem('mm_user_profile');
+      if (logged && storedProfile) {
+        setSession({
+          isLoggedIn: true,
+          profile: JSON.parse(storedProfile)
+        });
+      }
     } catch (e) {
       console.error('Failed to restore MachineMitra state:', e);
     }
@@ -83,6 +105,24 @@ export default function App() {
   };
 
   // ----- CRUD HANDLERS -----
+
+  const handleUpdateProfile = (newProfile: UserProfile) => {
+    setSession({ isLoggedIn: true, profile: newProfile });
+    localStorage.setItem('mm_user_profile', JSON.stringify(newProfile));
+  };
+
+  const handleLogout = () => {
+    setSession({
+      isLoggedIn: false,
+      profile: {
+        name: 'Owner',
+        phoneNumber: '',
+        companyName: 'Sri Ram Earth Movers'
+      }
+    });
+    localStorage.removeItem('mm_logged_in');
+    setActiveTab('dashboard');
+  };
 
   // MACHINE HANDLERS
   const handleAddMachine = (newM: Omit<Machine, 'id'>) => {
@@ -357,6 +397,18 @@ export default function App() {
     }
   };
 
+  if (!session.isLoggedIn) {
+    return (
+      <Login 
+        onLoginSuccess={(profile) => {
+          setSession({ isLoggedIn: true, profile });
+          localStorage.setItem('mm_logged_in', 'true');
+          localStorage.setItem('mm_user_profile', JSON.stringify(profile));
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#fcfcfd] flex flex-col font-sans text-brand-dark" id="mm-application-root">
       
@@ -372,14 +424,14 @@ export default function App() {
                 MachineMitra
               </h1>
               <p className="text-[9.5px] text-zinc-400 font-bold uppercase leading-none mt-0.5 font-mono tracking-wider">
-                Fleet Site Manager
+                Fleet Manager • {session.profile?.companyName}
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2 bg-zinc-50 border px-3 py-1.5 rounded-lg text-xs font-semibold">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
-            <span className="text-zinc-600 font-mono text-[10px]">LOCAL ENGINE ACTIVE</span>
+            <span className="text-zinc-600 font-mono text-[10px] uppercase">{session.profile?.name || 'Owner'}</span>
           </div>
         </div>
       </header>
@@ -514,6 +566,25 @@ export default function App() {
               />
             </motion.div>
           )}
+
+          {activeTab === 'profile' && (
+            <motion.div
+              key="profile"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.15 }}
+            >
+              <ProfileSettings
+                profile={session.profile || { name: 'Owner', phoneNumber: '', companyName: 'Sri Ram Earth Movers' }}
+                totalMachinesCount={machines.length}
+                activeMachinesCount={machines.filter(m => m.status === 'Working').length}
+                totalCustomersCount={jobs.length}
+                onUpdateProfile={handleUpdateProfile}
+                onLogout={handleLogout}
+              />
+            </motion.div>
+          )}
         </AnimatePresence>
 
       </main>
@@ -606,9 +677,24 @@ export default function App() {
             <span className="text-[9.5px] leading-tight font-sans">P&L Reports</span>
           </button>
 
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('profile');
+              setPayingJobId(null);
+            }}
+            className={`flex-1 py-1.5 flex flex-col items-center justify-center space-y-1 rounded-lg ${
+              activeTab === 'profile' ? 'text-brand-yellow font-bold' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Settings className="w-5 h-5 shrink-0" />
+            <span className="text-[9.5px] leading-tight font-sans">Settings</span>
+          </button>
+
         </div>
       </nav>
 
     </div>
   );
 }
+

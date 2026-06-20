@@ -78,12 +78,13 @@ export interface SalaryLog {
   notes?: string;
 }
 
-export interface NotificationItem {
-  id: string;
-  type: 'payment' | 'salary' | 'diesel';
-  title: string;
-  description: string;
-  amount?: number;
-  date?: string;
-  relativeId?: string; // ID of the referenced entry (Job, Salary, Diesel)
+export interface UserProfile {
+  name: string;
+  phoneNumber: string;
+  companyName: string;
+}
+
+export interface UserSession {
+  isLoggedIn: boolean;
+  profile: UserProfile;
 }
