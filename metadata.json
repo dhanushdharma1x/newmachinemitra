@@ -1,5 +1,5 @@
 {
-  "name": "MachineMitra",
+  "name": "Machine Mitra",
   "description": "Business management system for construction equipment owners to track payments, jobs, diesel expenses, salaries, and profit.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -85,8 +85,16 @@ export default function JobManager({
   const [totalAmount, setTotalAmount] = useState<number>(0);
   const [notes, setNotes] = useState('');
 
-  // Tipper / Calculation variables for Add Job
-  const [calcMode, setCalcMode] = useState<'flat' | 'per_load' | 'per_day'>('flat');
+  // Smart calculation modes: 'flat' (Simple amount) | 'jcb_hours' (JCB Hours) | 'per_load' (Tipper Loads) | 'per_day' (Tipper Daily Rent)
+  const [calcMode, setCalcMode] = useState<'flat' | 'jcb_hours' | 'per_load' | 'per_day'>('flat');
+  
+  // JCB Calculation parameters
+  const [startHours, setStartHours] = useState<number>(0);
+  const [endHours, setEndHours] = useState<number>(0);
+  const [breakHours, setBreakHours] = useState<number>(0);
+  const [ratePerHour, setRatePerHour] = useState<number>(0);
+
+  // Tipper Load / Day parameters
   const [ratePerLoad, setRatePerLoad] = useState<number>(0);
   const [numLoads, setNumLoads] = useState<number>(0);
   const [ratePerDay, setRatePerDay] = useState<number>(0);
@@ -106,8 +114,13 @@ export default function JobManager({
   const [editTotalAmount, setEditTotalAmount] = useState<number>(0);
   const [editNotes, setEditNotes] = useState('');
 
-  // Tipper / Calculation variables for Edit Job
-  const [editCalcMode, setEditCalcMode] = useState<'flat' | 'per_load' | 'per_day'>('flat');
+  // Tipper / JCB Calculation parameters for Edit Job
+  const [editCalcMode, setEditCalcMode] = useState<'flat' | 'jcb_hours' | 'per_load' | 'per_day'>('flat');
+  const [editStartHours, setEditStartHours] = useState<number>(0);
+  const [editEndHours, setEditEndHours] = useState<number>(0);
+  const [editBreakHours, setEditBreakHours] = useState<number>(0);
+  const [editRatePerHour, setEditRatePerHour] = useState<number>(0);
+
   const [editRatePerLoad, setEditRatePerLoad] = useState<number>(0);
   const [editNumLoads, setEditNumLoads] = useState<number>(0);
   const [editRatePerDay, setEditRatePerDay] = useState<number>(0);
@@ -124,48 +137,46 @@ export default function JobManager({
   // Auto-detect machine selection for Add Form to adjust calc modes
   const selectedMachine = machines.find(m => m.id === machineId);
   const isTipper = selectedMachine?.type === 'Tipper';
+  const isJcbHandled = selectedMachine && ['JCB 3DX', 'Excavator', 'Mini Excavator'].includes(selectedMachine.type);
 
   useEffect(() => {
     if (isTipper) {
-      if (calcMode === 'flat') {
-        setCalcMode('per_load'); // default to per_load for Tippers
-      }
+      setCalcMode('per_load'); // Default to loads for Tipper
+    } else if (isJcbHandled) {
+      setCalcMode('jcb_hours'); // Default to hours for JCB/Excavator
     } else {
       setCalcMode('flat');
     }
-  }, [machineId, isTipper]);
+  }, [machineId]);
 
-  // Recalculate totalAmount whenever Tipper factors change
+  // Recalculate totalAmount whenever any factor changes
   useEffect(() => {
     if (calcMode === 'per_load') {
       setTotalAmount(ratePerLoad * numLoads);
     } else if (calcMode === 'per_day') {
       setTotalAmount(ratePerDay * numDays);
+    } else if (calcMode === 'jcb_hours') {
+      const netHours = Math.max(0, (endHours - startHours) - breakHours);
+      setTotalAmount(Math.round(netHours * ratePerHour));
     }
-  }, [calcMode, ratePerLoad, numLoads, ratePerDay, numDays]);
+  }, [calcMode, ratePerLoad, numLoads, ratePerDay, numDays, startHours, endHours, breakHours, ratePerHour]);
 
   // Auto-detect machine selection for Edit Form
   const selectedEditMachine = machines.find(m => m.id === editMachineId);
   const isEditTipper = selectedEditMachine?.type === 'Tipper';
+  const isEditJcbHandled = selectedEditMachine && ['JCB 3DX', 'Excavator', 'Mini Excavator'].includes(selectedEditMachine.type);
 
-  useEffect(() => {
-    if (isEditTipper) {
-      if (editCalcMode === 'flat') {
-        setEditCalcMode('per_load');
-      }
-    } else {
-      setEditCalcMode('flat');
-    }
-  }, [editMachineId, isEditTipper]);
-
-  // Recalculate editTotalAmount whenever edit Tipper factors change
+  // Recalculate editTotalAmount whenever edit factors change
   useEffect(() => {
     if (editCalcMode === 'per_load') {
       setEditTotalAmount(editRatePerLoad * editNumLoads);
     } else if (editCalcMode === 'per_day') {
       setEditTotalAmount(editRatePerDay * editNumDays);
+    } else if (editCalcMode === 'jcb_hours') {
+      const netHours = Math.max(0, (editEndHours - editStartHours) - editBreakHours);
+      setEditTotalAmount(Math.round(netHours * editRatePerHour));
     }
-  }, [editCalcMode, editRatePerLoad, editNumLoads, editRatePerDay, editNumDays]);
+  }, [editCalcMode, editRatePerLoad, editNumLoads, editRatePerDay, editNumDays, editStartHours, editEndHours, editBreakHours, editRatePerHour]);
 
   // Handle opening payment modal
   const openPaymentModal = (jobId: string, totalPending: number) => {
@@ -181,17 +192,20 @@ export default function JobManager({
     if (!customerName.trim() || !machineId) return;
 
     let finalWorkDetails = workDetails;
-    if (isTipper) {
-      if (calcMode === 'per_load') {
-        const descSuffix = `[${numLoads} loads @ ₹${ratePerLoad}/load]`;
-        if (!finalWorkDetails.includes(descSuffix)) {
-          finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: ${descSuffix}`).trim();
-        }
-      } else if (calcMode === 'per_day') {
-        const descSuffix = `[${numDays} days @ ₹${ratePerDay}/day rental]`;
-        if (!finalWorkDetails.includes(descSuffix)) {
-          finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: ${descSuffix}`).trim();
-        }
+    if (calcMode === 'jcb_hours') {
+      const descSuffix = `[JCB Hours: Start ${startHours} - End ${endHours}, Break ${breakHours} hrs @ ₹${ratePerHour}/hr]`;
+      if (!finalWorkDetails.includes(descSuffix)) {
+        finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: ${descSuffix}`).trim();
+      }
+    } else if (calcMode === 'per_load') {
+      const descSuffix = `[Tipper Loads: ${numLoads} loads @ ₹${ratePerLoad}/load]`;
+      if (!finalWorkDetails.includes(descSuffix)) {
+        finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: ${descSuffix}`).trim();
+      }
+    } else if (calcMode === 'per_day') {
+      const descSuffix = `[Tipper Days: ${numDays} days @ ₹${ratePerDay}/day]`;
+      if (!finalWorkDetails.includes(descSuffix)) {
+        finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: ${descSuffix}`).trim();
       }
     }
 
@@ -214,6 +228,10 @@ export default function JobManager({
     setTotalAmount(0);
     setNotes('');
     setCalcMode('flat');
+    setStartHours(0);
+    setEndHours(0);
+    setBreakHours(0);
+    setRatePerHour(0);
     setRatePerLoad(0);
     setNumLoads(0);
     setRatePerDay(0);
@@ -246,29 +264,56 @@ export default function JobManager({
     setEditTotalAmount(job.totalAmount);
     setEditNotes(job.notes || '');
 
-    // Attempt to parse out existing load/day details for editing
-    const m = machines.find(mach => mach.id === job.machineId);
-    if (m?.type === 'Tipper') {
-      const loadMatch = job.workDetails.match(/\[(\d+)\s*loads?\s*@\s*₹?\s*(\d+)\/load\]/i);
-      const dayMatch = job.workDetails.match(/\[(\d+)\s*days?\s*@\s*₹?\s*(\d+)\/day/i);
+    const details = job.workDetails || '';
+    
+    // Parse out preceding calculations
+    const jcbMatch = details.match(/\[JCB Hours:\s*Start\s*([\d.]+)\s*-\s*End\s*([\d.]+),\s*Break\s*([\d.]+)\s*hrs\s*@\s*₹?([\d.]+)\/hr\]/i);
+    const loadMatch = details.match(/\[Tipper Loads:\s*(\d+)\s*loads?\s*@\s*₹?(\d+)\/load\]/i);
+    const dayMatch = details.match(/\[Tipper Days:\s*(\d+)\s*days?\s*@\s*₹?(\d+)\/day\]/i);
+
+    if (jcbMatch) {
+      setEditCalcMode('jcb_hours');
+      setEditStartHours(Number(jcbMatch[1]));
+      setEditEndHours(Number(jcbMatch[2]));
+      setEditBreakHours(Number(jcbMatch[3]));
+      setEditRatePerHour(Number(jcbMatch[4]));
       
-      if (loadMatch) {
-        setEditCalcMode('per_load');
-        setEditNumLoads(Number(loadMatch[1]));
-        setEditRatePerLoad(Number(loadMatch[2]));
-      } else if (dayMatch) {
-        setEditCalcMode('per_day');
-        setEditNumDays(Number(dayMatch[1]));
-        setEditRatePerDay(Number(dayMatch[2]));
-      } else {
-        setEditCalcMode('flat');
-        setEditRatePerLoad(0);
-        setEditNumLoads(0);
-        setEditRatePerDay(0);
-        setEditNumDays(0);
-      }
+      setEditRatePerLoad(0);
+      setEditNumLoads(0);
+      setEditRatePerDay(0);
+      setEditNumDays(0);
+    } else if (loadMatch) {
+      setEditCalcMode('per_load');
+      setEditNumLoads(Number(loadMatch[1]));
+      setEditRatePerLoad(Number(loadMatch[2]));
+      
+      setEditStartHours(0);
+      setEditEndHours(0);
+      setEditBreakHours(0);
+      setEditRatePerHour(0);
+      setEditRatePerDay(0);
+      setEditNumDays(0);
+    } else if (dayMatch) {
+      setEditCalcMode('per_day');
+      setEditNumDays(Number(dayMatch[1]));
+      setEditRatePerDay(Number(dayMatch[2]));
+      
+      setEditStartHours(0);
+      setEditEndHours(0);
+      setEditBreakHours(0);
+      setEditRatePerHour(0);
+      setEditRatePerLoad(0);
+      setEditNumLoads(0);
     } else {
       setEditCalcMode('flat');
+      setEditStartHours(0);
+      setEditEndHours(0);
+      setEditBreakHours(0);
+      setEditRatePerHour(0);
+      setEditRatePerLoad(0);
+      setEditNumLoads(0);
+      setEditRatePerDay(0);
+      setEditNumDays(0);
     }
 
     setIsEditModalOpen(true);
@@ -282,12 +327,12 @@ export default function JobManager({
     // Remove previous calculated agreements to avoid duplicates
     finalWorkDetails = finalWorkDetails.replace(/\n?Calculated agreement:[\s\S]*$/, '').trim();
 
-    if (isEditTipper) {
-      if (editCalcMode === 'per_load') {
-        finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: [${editNumLoads} loads @ ₹${editRatePerLoad}/load]`).trim();
-      } else if (editCalcMode === 'per_day') {
-        finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: [${editNumDays} days @ ₹${editRatePerDay}/day rental]`).trim();
-      }
+    if (editCalcMode === 'jcb_hours') {
+      finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: [JCB Hours: Start ${editStartHours} - End ${editEndHours}, Break ${editBreakHours} hrs @ ₹${editRatePerHour}/hr]`).trim();
+    } else if (editCalcMode === 'per_load') {
+      finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: [Tipper Loads: ${editNumLoads} loads @ ₹${editRatePerLoad}/load]`).trim();
+    } else if (editCalcMode === 'per_day') {
+      finalWorkDetails = (finalWorkDetails + `\nCalculated agreement: [Tipper Days: ${editNumDays} days @ ₹${editRatePerDay}/day]`).trim();
     }
 
     const newTotal = Number(editTotalAmount) || 0;
@@ -706,8 +751,8 @@ export default function JobManager({
                   )}
                 </div>
 
-                {/* TRIP/LOADS OR DAY RENTAL SMART CALCULATOR FOR TIPPER FLEETS */}
-                {isTipper && (
+                {/* SMART CALCULATOR CARD FOR SITE CLIENTS */}
+                {selectedMachine && (
                   <motion.div 
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
@@ -715,48 +760,127 @@ export default function JobManager({
                   >
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-xs font-bold text-amber-950 uppercase font-sans">
-                        🚛 Tipper Smart Calculator
+                        🚜 Machine Mitra Smart Calculator
                       </span>
-                      <span className="bg-amber-200 text-amber-950 font-extrabold px-2 py-0.5 rounded text-[9px] uppercase tracking-wide">
-                        Auto Calculation
+                      <span className="bg-amber-100 text-amber-950 border border-amber-300 font-extrabold px-2 py-0.5 rounded text-[9px] uppercase tracking-wide">
+                        Auto Calculator
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-amber-200">
+                    <div className="grid grid-cols-4 gap-1 bg-white p-1 rounded-lg border border-amber-200">
                       <button
                         type="button"
-                        onClick={() => setCalcMode('per_load')}
-                        className={`py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                          calcMode === 'per_load' 
-                            ? 'bg-amber-500 text-zinc-950 shadow-xs' 
+                        onClick={() => setCalcMode('jcb_hours')}
+                        className={`py-2 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
+                          calcMode === 'jcb_hours' 
+                            ? 'bg-amber-500 text-zinc-950 shadow-xs font-sans' 
                             : 'text-zinc-650 hover:bg-zinc-50'
                         }`}
                       >
-                        Per Load
+                        🚜 JCB Hours
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCalcMode('per_load')}
+                        className={`py-2 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
+                          calcMode === 'per_load' 
+                            ? 'bg-amber-500 text-zinc-950 shadow-xs font-sans' 
+                            : 'text-zinc-650 hover:bg-zinc-50'
+                        }`}
+                      >
+                        🚚 Loads
                       </button>
                       <button
                         type="button"
                         onClick={() => setCalcMode('per_day')}
-                        className={`py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        className={`py-2 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
                           calcMode === 'per_day' 
-                            ? 'bg-amber-500 text-zinc-950 shadow-xs' 
+                            ? 'bg-amber-500 text-zinc-950 shadow-xs font-sans' 
                             : 'text-zinc-650 hover:bg-zinc-50'
                         }`}
                       >
-                        Daily Rental
+                        🗓️ Daily
                       </button>
                       <button
                         type="button"
                         onClick={() => setCalcMode('flat')}
-                        className={`py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        className={`py-2 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
                           calcMode === 'flat' 
-                            ? 'bg-amber-500 text-zinc-950 shadow-xs' 
+                            ? 'bg-amber-500 text-zinc-950 shadow-xs font-sans' 
                             : 'text-zinc-650 hover:bg-zinc-50'
                         }`}
                       >
-                        Flat rate
+                        ✏️ Flat / Simple
                       </button>
                     </div>
+
+                    {calcMode === 'jcb_hours' && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -5 }} 
+                        animate={{ opacity: 1, y: 0 }} 
+                        className="space-y-3 bg-white p-3 rounded-lg border border-amber-100"
+                      >
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-1">Start Hour Reading</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder="e.g. 1000.5"
+                              value={startHours || ''}
+                              onChange={e => setStartHours(Number(e.target.value))}
+                              className="w-full bg-zinc-50 border border-zinc-200 rounded p-2 text-xs font-mono font-bold focus:bg-white focus:border-amber-400 outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-1">End Hour Reading</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder="e.g. 1012.0"
+                              value={endHours || ''}
+                              onChange={e => setEndHours(Number(e.target.value))}
+                              className="w-full bg-zinc-50 border border-zinc-200 rounded p-2 text-xs font-mono font-bold focus:bg-white focus:border-amber-400 outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-1">Lunch/Break (Hrs)</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder="e.g. 1.0"
+                              value={breakHours || ''}
+                              onChange={e => setBreakHours(Number(e.target.value))}
+                              className="w-full bg-zinc-50 border border-zinc-200 rounded p-2 text-xs font-mono font-bold focus:bg-white focus:border-amber-400 outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-1">Rate per Hour (₹)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="e.g. 900"
+                              value={ratePerHour || ''}
+                              onChange={e => setRatePerHour(Number(e.target.value))}
+                              className="w-full bg-zinc-50 border border-zinc-200 rounded p-2 text-xs font-mono font-bold focus:bg-white focus:border-amber-400 outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-zinc-500 flex justify-between pt-1 border-t border-zinc-100">
+                          <span>Computed Hours worked:</span>
+                          <span className="font-mono font-black text-amber-950 bg-amber-100 px-1 rounded">
+                            {Math.max(0, (endHours - startHours) - breakHours).toFixed(1)} hrs
+                          </span>
+                        </div>
+                      </motion.div>
+                    )}
 
                     {calcMode === 'per_load' && (
                       <motion.div 
@@ -1060,57 +1184,136 @@ export default function JobManager({
                   </select>
                 </div>
 
-                {/* TRIP/LOADS OR DAY RENTAL SMART CALCULATOR ON EDIT FOR TIPPER EQUIPMENT */}
-                {isEditTipper && (
+                {/* SMART CALCULATOR CARD FOR SITE CLIENTS ON EDIT */}
+                {selectedEditMachine && (
                   <motion.div 
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     className="bg-amber-50 border-2 border-amber-300 p-4 rounded-xl space-y-3"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-xs font-bold text-amber-950 uppercase font-sans">
-                        🚛 Tipper Smart Calculator
+                      <span className="flex items-center gap-1.5 text-xs font-bold text-amber-955 uppercase font-sans">
+                        🚜 Machine Mitra Smart Calculator
                       </span>
                       <span className="bg-amber-200 text-amber-955 font-extrabold px-2 py-0.5 rounded text-[9px] uppercase tracking-wide">
                         Auto Calculation
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-lg border border-amber-200">
+                    <div className="grid grid-cols-4 gap-1 bg-white p-1 rounded-lg border border-amber-200">
                       <button
                         type="button"
-                        onClick={() => setEditCalcMode('per_load')}
-                        className={`py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                          editCalcMode === 'per_load' 
-                            ? 'bg-amber-500 text-zinc-950 shadow-xs' 
+                        onClick={() => setEditCalcMode('jcb_hours')}
+                        className={`py-2 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
+                          editCalcMode === 'jcb_hours' 
+                            ? 'bg-amber-500 text-zinc-950 shadow-sm font-sans' 
                             : 'text-zinc-650 hover:bg-zinc-50'
                         }`}
                       >
-                        Per Load
+                        🚜 JCB Hours
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditCalcMode('per_load')}
+                        className={`py-2 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
+                          editCalcMode === 'per_load' 
+                            ? 'bg-amber-500 text-zinc-950 shadow-sm font-sans' 
+                            : 'text-zinc-650 hover:bg-zinc-50'
+                        }`}
+                      >
+                        🚚 Loads
                       </button>
                       <button
                         type="button"
                         onClick={() => setEditCalcMode('per_day')}
-                        className={`py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        className={`py-2 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
                           editCalcMode === 'per_day' 
-                            ? 'bg-amber-500 text-zinc-950 shadow-xs' 
+                            ? 'bg-amber-500 text-zinc-950 shadow-sm font-sans' 
                             : 'text-zinc-650 hover:bg-zinc-50'
                         }`}
                       >
-                        Daily Rental
+                        🗓️ Daily
                       </button>
                       <button
                         type="button"
                         onClick={() => setEditCalcMode('flat')}
-                        className={`py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        className={`py-2 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
                           editCalcMode === 'flat' 
-                            ? 'bg-amber-500 text-zinc-950 shadow-xs' 
+                            ? 'bg-amber-500 text-zinc-950 shadow-sm font-sans' 
                             : 'text-zinc-650 hover:bg-zinc-50'
                         }`}
                       >
-                        Flat rate
+                        ✏️ Flat / Simple
                       </button>
                     </div>
+
+                    {editCalcMode === 'jcb_hours' && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -5 }} 
+                        animate={{ opacity: 1, y: 0 }} 
+                        className="space-y-3 bg-white p-3 rounded-lg border border-amber-100"
+                      >
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-1">Start Hour Reading</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder="e.g. 1000.5"
+                              value={editStartHours || ''}
+                              onChange={e => setEditStartHours(Number(e.target.value))}
+                              className="w-full bg-zinc-50 border border-zinc-200 rounded p-2 text-xs font-mono font-bold focus:bg-white focus:border-amber-400 outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-1">End Hour Reading</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder="e.g. 1012.0"
+                              value={editEndHours || ''}
+                              onChange={e => setEditEndHours(Number(e.target.value))}
+                              className="w-full bg-zinc-50 border border-zinc-200 rounded p-2 text-xs font-mono font-bold focus:bg-white focus:border-amber-400 outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-1">Lunch/Break (Hrs)</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder="e.g. 1.0"
+                              value={editBreakHours || ''}
+                              onChange={e => setEditBreakHours(Number(e.target.value))}
+                              className="w-full bg-zinc-50 border border-zinc-200 rounded p-2 text-xs font-mono font-bold focus:bg-white focus:border-amber-400 outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-1">Rate per Hour (₹)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="e.g. 900"
+                              value={editRatePerHour || ''}
+                              onChange={e => setEditRatePerHour(Number(e.target.value))}
+                              className="w-full bg-zinc-50 border border-zinc-200 rounded p-2 text-xs font-mono font-bold focus:bg-white focus:border-amber-400 outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-zinc-500 flex justify-between pt-1 border-t border-zinc-100">
+                          <span>Computed Hours worked:</span>
+                          <span className="font-mono font-black text-amber-955 bg-amber-100 px-1 rounded">
+                            {Math.max(0, (editEndHours - editStartHours) - editBreakHours).toFixed(1)} hrs
+                          </span>
+                        </div>
+                      </motion.div>
+                    )}
 
                     {editCalcMode === 'per_load' && (
                       <motion.div 
